@@ -1,0 +1,9 @@
+__pycache__/
+.ipynb_checkpoints/
+*.db
+*.tar.gz
+*.log
+python/
+*.zip
+Tennis_Linux/
+Tennis_Linux_NoVis/
