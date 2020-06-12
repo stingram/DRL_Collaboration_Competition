@@ -5,5 +5,6 @@ __pycache__/
 *.log
 python/
 *.zip
+ma_ddpg_workspace/
 Tennis_Linux/
 Tennis_Linux_NoVis/
