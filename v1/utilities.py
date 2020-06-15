@@ -10,6 +10,8 @@ def transpose_list(mylist):
 
 def transpose_to_tensor(input_list):
     make_tensor = lambda x: torch.tensor(x, dtype=torch.float)
+    # print DEBUG
+    print("TRANSPOSE TO TENSOR INPUT LIST: {}".format(input_list))
     return list(map(make_tensor, zip(*input_list)))
 
 

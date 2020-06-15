@@ -1,12 +1,12 @@
 # main code that contains the neural network setup
 # policy + critic updates
-# see ddpg.py for other details in the network
+# see ddpg_agent.py for other details in the network
 
-from ddpg import DDPGAgent
+from ddpg_agent import DDPGAgent
 import torch
 from utilities import soft_update, transpose_to_tensor, transpose_list
-#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = 'cpu'
 
 
 
@@ -15,13 +15,13 @@ class MADDPG:
         super(MADDPG, self).__init__()
 
         # critic input = obs_full + actions = 14+2+2+2=20
-		# in_actor, hidden_in_actor, hidden_out_actor, out_actor, in_critic, hidden_in_critic, hidden_out_critic, lr_actor=1.0e-2, lr_critic=1.0e-2
+        # in_actor, hidden_in_actor, hidden_out_actor, out_actor, in_critic, hidden_in_critic, hidden_out_critic, lr_actor=1.0e-2, lr_critic=1.0e-2
         # self.maddpg_agent = [DDPGAgent(14, 16, 8, 2, 20, 32, 16), 
         #                      DDPGAgent(14, 16, 8, 2, 20, 32, 16)]
-		
-		# My theory on why actions are considered 2+2+2 is because there are three agents in the "simple-adversary" environment from openai gym
-		# For me, since there are only two agents, each with two actions I would need 24+2+2 
-		self.maddpg_agent = [DDPGAgent(24, 128, 64, 2, 24+2+2, 128, 64), 
+        
+        # My theory on why actions are considered 2+2+2 is because there are three agents in the "simple-adversary" environment from openai gym
+        # For me, since there are only two agents, each with two actions I would need 24+2+2 
+        self.maddpg_agent = [DDPGAgent(24, 128, 64, 2, 24+2+2, 128, 64), 
                              DDPGAgent(24, 128, 64, 2, 20+2+2, 128, 64)]
         
         self.discount_factor = discount_factor
@@ -40,6 +40,9 @@ class MADDPG:
 
     def act(self, obs_all_agents, noise=0.0):
         """get actions from all agents in the MADDPG object"""
+        # DEBUG
+        # At this point obs is a list of tensors, each element in the list for tensor representing state per agent
+        # print("MADDPG OBS LEN:{}, OBS SHAPE: {}".format(len(obs_all_agents), obs_all_agents[1].shape))
         actions = [agent.act(obs, noise) for agent, obs in zip(self.maddpg_agent, obs_all_agents)]
         return actions
 
@@ -48,16 +51,19 @@ class MADDPG:
         target_actions = [ddpg_agent.target_act(obs, noise) for ddpg_agent, obs in zip(self.maddpg_agent, obs_all_agents)]
         return target_actions
 
-    def update(self, samples, agent_number, logger):
+    def update(self, samples, agent_number, logger=None):
         """update the critics and actors of all the agents """
 
         # need to transpose each element of the samples
         # to flip obs[parallel_agent][agent_number] to
         # obs[agent_number][parallel_agent]
-        obs, obs_full, action, reward, next_obs, next_obs_full, done = map(transpose_to_tensor, samples)
+        # obs, obs_full, action, reward, next_obs, next_obs_full, done = map(transpose_to_tensor, samples)
+        print("TYPE UPDATE: {}".format(type(samples[0])))
+        # obs, action, reward, next_obs, done = map(transpose_to_tensor, samples)
+        obs, action, reward, next_obs, done = samples
 
-        obs_full = torch.stack(obs_full)
-        next_obs_full = torch.stack(next_obs_full)
+        # obs_full = torch.stack(obs_full)
+        # next_obs_full = torch.stack(next_obs_full)
         
         agent = self.maddpg_agent[agent_number]
         agent.critic_optimizer.zero_grad()
@@ -67,14 +73,18 @@ class MADDPG:
         target_actions = self.target_act(next_obs)
         target_actions = torch.cat(target_actions, dim=1)
         
-        target_critic_input = torch.cat((next_obs_full.t(),target_actions), dim=1).to(device)
+        # target_critic_input = torch.cat((next_obs_full.t(),target_actions), dim=1).to(device)
+        target_critic_input = torch.cat((next_obs.t(),target_actions), dim=1).to(device)
+        
         
         with torch.no_grad():
             q_next = agent.target_critic(target_critic_input)
         
         y = reward[agent_number].view(-1, 1) + self.discount_factor * q_next * (1 - done[agent_number].view(-1, 1))
         action = torch.cat(action, dim=1)
-        critic_input = torch.cat((obs_full.t(), action), dim=1).to(device)
+        # critic_input = torch.cat((obs_full.t(), action), dim=1).to(device)
+        critic_input = torch.cat((obs.t(), action), dim=1).to(device)
+        
         q = agent.critic(critic_input)
 
         huber_loss = torch.nn.SmoothL1Loss()
@@ -95,7 +105,9 @@ class MADDPG:
         q_input = torch.cat(q_input, dim=1)
         # combine all the actions and observations for input to critic
         # many of the obs are redundant, and obs[1] contains all useful information already
-        q_input2 = torch.cat((obs_full.t(), q_input), dim=1)
+        # q_input2 = torch.cat((obs_full.t(), q_input), dim=1)
+        q_input2 = torch.cat((obs.t(), q_input), dim=1)
+        
         
         # get the policy gradient
         actor_loss = -agent.critic(q_input2).mean()
@@ -105,10 +117,11 @@ class MADDPG:
 
         al = actor_loss.cpu().detach().item()
         cl = critic_loss.cpu().detach().item()
-        logger.add_scalars('agent%i/losses' % agent_number,
-                           {'critic loss': cl,
-                            'actor_loss': al},
-                           self.iter)
+        if logger:
+            logger.add_scalars('agent%i/losses' % agent_number,
+                               {'critic loss': cl,
+                                'actor_loss': al},
+                               self.iter)
 
     def update_targets(self):
         """soft update targets"""
